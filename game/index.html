@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Solara Bay — an open world crime game</title>
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<canvas id="view" tabindex="0"></canvas>
+
+<div id="hud">
+  <div id="topleft">
+    <div id="missionTag">SOLARA BAY</div>
+    <div id="objective"><span class="tick">◆</span><span id="objectiveText">—</span></div>
+  </div>
+
+  <div id="topright">
+    <div id="money" class="shadowed">$250</div>
+    <div id="stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
+    <div id="clockline" class="shadowed"><span id="clock">7:00 PM</span><span>·</span><span id="radio">SOLARA SABOR 98.1</span></div>
+  </div>
+
+  <div id="bottombar">
+    <div class="bar"><span class="label">HP</span><div class="track"><div id="healthFill" class="fill"></div></div></div>
+    <div class="bar"><span class="label">AR</span><div class="track"><div id="armorFill" class="fill"></div></div></div>
+    <div id="weaponLine"><span id="weaponName">PISTOL</span><span id="ammo">12 / 34</span></div>
+  </div>
+
+  <div id="mapWrap"><canvas id="minimap" width="372" height="372"></canvas><div id="district">CENTRICO</div></div>
+  <div id="timebar">SOLARA BAY · PCPD PATROL</div>
+  <div id="speedo"><b id="spdVal">0</b><span>MPH</span></div>
+
+  <div id="crosshair"><i class="dot"></i><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
+  <div id="hitmarker"></div>
+  <div id="notices"></div>
+  <div id="subtitle"></div>
+  <div id="prompt"></div>
+  <div id="bustedWrap"><div id="bustedFill"></div></div>
+  <div id="damage"></div>
+  <div id="bigtext"><h1 id="bigTitle">WASTED</h1><p id="bigSub"></p></div>
+  <div id="flash"></div>
+</div>
+
+<div id="menu" class="screen on">
+  <div class="card">
+    <div class="logo"><h1>SOLARA BAY</h1><span class="tag">a crime saga</span></div>
+    <p class="blurb">
+      Rico Salas came home from the docks with nothing but a duffel bag and a grudge.
+      Solara Bay is a sun-bleached city of art-deco hotels, cartel money and bent cops —
+      steal a car, take a job, and try not to make the fifth star personal.
+    </p>
+    <div class="menuList">
+      <button class="btn primary" id="btnNew">New game</button>
+      <button class="btn" id="btnContinue" disabled>Continue</button>
+      <div class="row">
+        <button class="btn" id="btnControls" style="flex:1">Controls</button>
+        <button class="btn" id="btnSettings" style="flex:1">Settings</button>
+      </div>
+    </div>
+    <div class="meta">
+      <span><b>Open world</b> on foot &amp; by car</span>
+      <span><b>8</b> story missions</span>
+      <span><b>PCPD</b> wanted system</span>
+    </div>
+  </div>
+</div>
+
+<div id="controls" class="screen">
+  <div class="card">
+    <h2 class="section">Controls</h2>
+    <div class="keys">
+      <div><span>Move</span><kbd>W A S D</kbd></div>
+      <div><span>Look</span><kbd>Mouse</kbd></div>
+      <div><span>Sprint</span><kbd>Shift</kbd></div>
+      <div><span>Jump</span><kbd>Space</kbd></div>
+      <div><span>Crouch</span><kbd>C</kbd></div>
+      <div><span>Fire</span><kbd>Left click</kbd></div>
+      <div><span>Aim</span><kbd>Right click</kbd></div>
+      <div><span>Enter / exit vehicle</span><kbd>F</kbd></div>
+      <div><span>Handbrake</span><kbd>Space</kbd> in a car</div>
+      <div><span>Radio station</span><kbd>E</kbd></div>
+      <div><span>Horn</span><kbd>H</kbd></div>
+      <div><span>Reload</span><kbd>R</kbd></div>
+      <div><span>Weapons</span><kbd>1 2 3 4</kbd> or <kbd>Q</kbd></div>
+      <div><span>Pause</span><kbd>Esc</kbd></div>
+      <div><span>Quick save</span><kbd>F5</kbd></div>
+    </div>
+    <div class="row" style="margin-top:20px"><button class="btn" data-close="controls">Back</button></div>
+  </div>
+</div>
+
+<div id="settings" class="screen">
+  <div class="card">
+    <h2 class="section">Settings</h2>
+    <div class="setting"><span>Mouse sensitivity</span><input type="range" id="setSens" min="0.3" max="2.4" step="0.05" value="1"><span class="val" id="valSens">1.00</span></div>
+    <div class="setting"><span>Master volume</span><input type="range" id="setMaster" min="0" max="1" step="0.05" value="0.8"><span class="val" id="valMaster">80%</span></div>
+    <div class="setting"><span>Music volume</span><input type="range" id="setMusic" min="0" max="1" step="0.05" value="0.5"><span class="val" id="valMusic">50%</span></div>
+    <div class="setting"><span>Graphics</span><div class="row" style="flex:1">
+      <button class="btn" data-quality="low" style="flex:1">Low</button>
+      <button class="btn" data-quality="medium" style="flex:1">Medium</button>
+      <button class="btn" data-quality="high" style="flex:1">High</button>
+    </div></div>
+    <div class="row" style="margin-top:20px"><button class="btn" data-close="settings">Back</button></div>
+  </div>
+</div>
+
+<div id="pause" class="screen">
+  <div class="card" style="width:min(560px,92vw)">
+    <h2 class="section">Paused</h2>
+    <div class="logo" style="margin-bottom:16px"><h1 style="font-size:46px">SOLARA BAY</h1></div>
+    <div class="menuList">
+      <button class="btn primary" id="btnResume">Resume</button>
+      <button class="btn" id="btnSave">Save game</button>
+      <div class="row">
+        <button class="btn" id="btnPauseControls" style="flex:1">Controls</button>
+        <button class="btn" id="btnPauseSettings" style="flex:1">Settings</button>
+      </div>
+      <button class="btn" id="btnQuit">Quit to title</button>
+    </div>
+    <div class="meta"><span id="saveInfo">—</span></div>
+  </div>
+</div>
+
+<div id="loading"><div class="box"><h1>SOLARA BAY</h1><p>painting the city</p></div></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.min.js"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

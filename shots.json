@@ -1,0 +1,8 @@
+{
+  "captures": [
+    { "file": "1-chase.jpg",  "url": "game/index.html?shot=chase&seed=7",  "caption": "A stolen coupe, three stars and the PCPD on the strip" },
+    { "file": "2-street.jpg", "url": "game/index.html?shot=street&seed=3", "caption": "Gunfight outside the club on Little Habana night" },
+    { "file": "3-pier.jpg",   "url": "game/index.html?shot=pier&seed=5",   "caption": "Centrico after dark with four stars" },
+    { "file": "4-title.jpg",  "url": "game/index.html?shot=title&seed=2",  "caption": "Rico and the car on the Sunset Strip promenade" }
+  ]
+}
