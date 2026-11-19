@@ -48,12 +48,12 @@ export function asphalt() {
     const c = canvas(w, w);
     const ctx = c.getContext('2d');
     const rng = new RNG(11);
-    ctx.fillStyle = '#6b6e73';
+    ctx.fillStyle = '#5c5f64';
     ctx.fillRect(0, 0, w, w);
     // patched tar seams
-    ctx.strokeStyle = 'rgba(28,28,32,0.28)';
-    for (let i = 0; i < 5; i++) {
-      ctx.lineWidth = rng.range(0.8, 1.8);
+    ctx.strokeStyle = 'rgba(30,30,34,0.16)';
+    for (let i = 0; i < 3; i++) {
+      ctx.lineWidth = rng.range(0.6, 1.2);
       ctx.beginPath();
       let x = rng.range(0, w);
       let y = 0;
@@ -65,7 +65,7 @@ export function asphalt() {
       }
       ctx.stroke();
     }
-    speckle(ctx, w, w, rng, 3000, 0.1, 1.5);
+    speckle(ctx, w, w, rng, 2200, 0.07, 1.4);
     return toTexture(c, { repeat: [1, 1] });
   });
 }
@@ -514,12 +514,42 @@ export function storefrontSkin(seed, tint) {
     const rng = new RNG(seed);
     ctx.fillStyle = tint;
     ctx.fillRect(0, 0, S, S);
-    ctx.fillStyle = 'rgba(20,26,34,0.85)';
+    // interior: a warm back wall, shelving, and a counter silhouette
+    const interior = ctx.createLinearGradient(0, 40, 0, S - 16);
+    interior.addColorStop(0, '#5a4a36');
+    interior.addColorStop(0.5, '#3a2f24');
+    interior.addColorStop(1, '#1a1712');
+    ctx.fillStyle = interior;
     ctx.fillRect(8, 40, S - 16, S - 56);
-    ctx.fillStyle = 'rgba(180,220,255,0.25)';
-    for (let i = 0; i < 6; i++) {
-      ctx.fillRect(10 + i * 18, 44, 6, S - 64);
+    // ceiling strip lights
+    ctx.fillStyle = 'rgba(255,226,168,0.75)';
+    ctx.fillRect(14, 42, S - 28, 3);
+    ctx.fillStyle = 'rgba(255,226,168,0.35)';
+    ctx.fillRect(14, 46, S - 28, 6);
+    // shelves of stock
+    for (let row = 0; row < 3; row++) {
+      const y = 58 + row * 18;
+      ctx.fillStyle = 'rgba(30,24,18,0.85)';
+      ctx.fillRect(14, y, S - 28, 3);
+      for (let i = 0; i < 7; i++) {
+        if (!rng.chance(0.75)) continue;
+        ctx.fillStyle = ['#b7563f', '#3f6d8c', '#c9a24a', '#6a8f5e', '#8c5a86'][rng.int(0, 4)];
+        ctx.fillRect(16 + i * 14, y - rng.range(5, 12), rng.range(6, 10), rng.range(5, 11));
+      }
     }
+    // counter
+    ctx.fillStyle = 'rgba(18,15,12,0.9)';
+    ctx.fillRect(10, S - 46, S - 20, 18);
+    // mullions and the glass reflection
+    ctx.fillStyle = 'rgba(16,20,26,0.9)';
+    for (let i = 0; i < 5; i++) ctx.fillRect(10 + i * 24, 40, 4, S - 56);
+    ctx.fillStyle = 'rgba(200,225,255,0.12)';
+    ctx.beginPath();
+    ctx.moveTo(12, S - 18);
+    ctx.lineTo(S * 0.5, 42);
+    ctx.lineTo(S * 0.62, 42);
+    ctx.lineTo(12, S - 18);
+    ctx.fill();
     ctx.fillStyle = rng.pick(['#5e3230', '#2b4d3c', '#6b5628', '#2f3f5c', '#42354a']);
     ctx.fillRect(0, 0, S, 26);
     ctx.fillStyle = 'rgba(240,238,225,0.55)';
@@ -534,6 +564,60 @@ export function storefrontSkin(seed, tint) {
 // A soft blob laid on the ground under anything that stands on it. Real shadow
 // maps handle the sun; this is the contact darkening that stops a car floating
 // on the asphalt and keeps characters readable after dark.
+// Striped canvas for shop awnings, plus the underside glow a lit shop throws
+// onto the walk in front of it.
+// A band of soft cloud for the sky dome: a few dozen blurred blobs, drawn once
+// and tiled around the horizon. Cheap, and it stops the sky reading as a
+// gradient with nothing in it.
+export function clouds() {
+  return cached('clouds', () => {
+    const W = 1024;
+    const H = 512;
+    const c = canvas(W, H);
+    const ctx = c.getContext('2d');
+    const rng = new RNG(4242);
+    ctx.clearRect(0, 0, W, H);
+    // three bands of weather, thinning towards the zenith
+    for (const band of [
+      { y: H * 0.34, n: 26, size: [110, 240], alpha: [0.3, 0.6] },
+      { y: H * 0.45, n: 20, size: [90, 180], alpha: [0.22, 0.45] },
+      { y: H * 0.22, n: 12, size: [70, 150], alpha: [0.12, 0.3] },
+    ]) {
+      for (let i = 0; i < band.n; i++) {
+        const x = rng.range(0, W);
+        const y = band.y + rng.range(-26, 26);
+        const rx = rng.range(band.size[0], band.size[1]);
+        const ry = rx * rng.range(0.22, 0.4);
+        const a = rng.range(band.alpha[0], band.alpha[1]);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, rx);
+        g.addColorStop(0, `rgba(255,255,255,${a})`);
+        g.addColorStop(0.55, `rgba(255,255,255,${a * 0.45})`);
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(1, ry / rx);
+        ctx.translate(-x, -y);
+        ctx.fillStyle = g;
+        ctx.fillRect(x - rx, y - rx, rx * 2, rx * 2);
+        ctx.restore();
+      }
+    }
+    return toTexture(c, { repeat: [1, 1] });
+  });
+}
+
+export function awningStripe(a = '#c9473f', b = '#efe6d2') {
+  return cached('awning' + a + b, () => {
+    const c = canvas(64, 64);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = b;
+    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillStyle = a;
+    for (let i = 0; i < 4; i++) ctx.fillRect(i * 16, 0, 8, 64);
+    return toTexture(c, { repeat: [1, 1] });
+  });
+}
+
 export function shadowBlob() {
   return cached('shadow.blob', () => {
     const S = 128;

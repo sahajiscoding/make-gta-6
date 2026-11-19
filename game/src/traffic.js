@@ -8,7 +8,7 @@ const LANE = 3.9;
 export function createTraffic(G) {
   const rng = new RNG(777);
   const cars = [];
-  const MAX_CARS = 16;
+  const MAX_CARS = 24;
   let spawnTimer = 0;
 
   function nodeKey(n) {
@@ -60,9 +60,14 @@ export function createTraffic(G) {
 
   function spawnCar() {
     const p = G.player;
-    for (let tries = 0; tries < 26; tries++) {
-      const i = rng.int(0, G.city.roads.xs.length - 2);
-      const j = rng.int(0, G.city.roads.zs.length - 1);
+    // spawn around the player rather than anywhere on the island: a random grid
+    // node is almost always 300 m away, which leaves the street empty
+    const near = G.city.nearestNode(p.pos.x, p.pos.z);
+    const nx = G.city.roads.xs.length;
+    const nz = G.city.roads.zs.length;
+    for (let tries = 0; tries < 30; tries++) {
+      const i = Math.max(0, Math.min(nx - 2, near.i + rng.int(-2, 1)));
+      const j = Math.max(0, Math.min(nz - 1, near.j + rng.int(-2, 2)));
       const from = G.city.nodeAt(i, j);
       const to = G.city.nodeAt(i + 1, j);
       const t = rng.range(0.25, 0.85);
