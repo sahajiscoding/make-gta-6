@@ -22,7 +22,7 @@ import { createAudio } from './audio.js';
 import { createEffects } from './effects.js';
 import { createPickups } from './pickups.js';
 import { createInput } from './input.js';
-import { setAnisotropy } from './textures.js';
+import { setAnisotropy, clouds as cloudTexture } from './textures.js';
 import { TAU, clamp01, lerp, clockString, RNG } from './util.js';
 
 const params = new URLSearchParams(location.search);
@@ -133,7 +133,7 @@ const skyMat = new THREE.ShaderMaterial({
       float sun = pow(max(dot(dir, normalize(sunDir)), 0.0), 220.0);
       float glow = pow(max(dot(dir, normalize(sunDir)), 0.0), 6.0);
       col += sunColor * sun * 1.1;
-      col += sunColor * glow * 0.16;
+      col += sunColor * glow * 0.1;
       gl_FragColor = vec4(col, 1.0);
     }
   `,
@@ -141,6 +141,20 @@ const skyMat = new THREE.ShaderMaterial({
 const sky = new THREE.Mesh(new THREE.SphereGeometry(2200, 24, 16), skyMat);
 sky.frustumCulled = false;
 scene.add(sky);
+
+// weather: one soft cloud dome, tinted by the same palette as the sky
+const cloudMat = new THREE.MeshBasicMaterial({
+  map: cloudTexture(),
+  transparent: true,
+  opacity: 0.5,
+  depthWrite: false,
+  side: THREE.BackSide,
+});
+cloudMat.map.repeat.set(2, 1);
+const cloudDome = new THREE.Mesh(new THREE.SphereGeometry(2090, 24, 16), cloudMat);
+cloudDome.frustumCulled = false;
+cloudDome.rotation.y = 1.2;
+scene.add(cloudDome);
 
 // stars for the small hours
 const starCount = 700;
@@ -219,6 +233,13 @@ G.menu = createMenu(G, {
 // some parked cars to steal right away
 G.vehicles.populateAround(city.spots.motel.x, city.spots.motel.z, 120, 9);
 G.vehicles.populateAround(city.spots.club.x, city.spots.club.z, 120, 7);
+// and kerbside parking down the strip and through downtown, because a street
+// with no parked cars reads as a film set
+for (const spot of [city.spots.motel, city.spots.club, city.spots.docks, city.spots.pier]) {
+  for (let k = -2; k <= 2; k++) {
+    G.vehicles.populateAround(spot.x + k * 42, spot.z + k * 26, 70, 5);
+  }
+}
 
 // ---------------------------------------------------------------- quality
 function applyQuality(q) {
@@ -425,15 +446,20 @@ function updateSky(dt) {
   // night is lit by the city itself, never pitch black
   // lerp(night, day, dayness): at night the city glows, it is never unlit
   hemi.intensity = lerp(1.15, 0.55, clamp01(alt * 1.8 + 0.35));
-  ambient.intensity = lerp(1.45, 0.6, clamp01(alt * 2 + 0.3));
+  ambient.intensity = lerp(1.2, 0.62, clamp01(alt * 2 + 0.3));
   // shadow colour follows the key: blue in daylight, warm at golden hour,
   // cold and dim once the sun is gone
-  ambient.color.copy(_c1.set(alt > 0.42 ? '#cadcee' : alt > 0.06 ? '#ffcfae' : '#8189a6'));
+  ambient.color.copy(_c1.set(alt > 0.42 ? '#cadcee' : alt > 0.06 ? '#ffcfae' : '#8d90a4'));
 
   sun.intensity = sunLight;
   sun.color.copy(_c1.set(alt > 0.18 ? '#fff4dc' : alt > -0.04 ? '#ffa96b' : '#7f95c8'));
   fill.intensity = lerp(0.22, 0.42, clamp01(alt + 0.2));
   fill.color.set(alt > 0.05 ? '#ffd9b4' : '#5b6fa8');
+
+  // clouds take the sky's colour at the horizon and go pink at dusk
+  cloudMat.color.copy(cTop).lerp(_c1.set('#ffffff'), 0.55);
+  cloudMat.opacity = clamp01(0.16 + alt * 0.5) * 0.75;
+  cloudDome.rotation.y = 1.2 + G.time.hours * 0.01;
 
   starMat.opacity = clamp01(-alt * 2.4);
   stars.visible = starMat.opacity > 0.02;
@@ -446,7 +472,7 @@ function updateSky(dt) {
 
   const night = clamp01(-alt * 2.4 + 0.2);
   G.settings.night = night;
-  post.uniforms.exposure.value = lerp(1.28, 0.98, clamp01(alt * 1.6 + 0.4)) * (G.settings.exposure ?? 1);
+  post.uniforms.exposure.value = lerp(1.24, 0.96, clamp01(alt * 1.6 + 0.4)) * (G.settings.exposure ?? 1);
   city.setNight(night);
   audio.update(dt, { night });
 
@@ -604,7 +630,7 @@ function setupShot(kind) {
       ped.panicFrom = { x: x, z: z + 10 };
     }
     for (let i = 0; i < 4; i++) G.peds.spawnCivilian(x - 12 - i * 1.6, z - 12 - i * 5);
-    shotCam = { car, ahead: 7.6, side: 4.2, up: 1.95, lookBack: 13, lookSide: 1.0, lookY: 1.15, fov: 50 };
+    shotCam = { car, ahead: -9.5, side: 3.6, up: 3.5, lookBack: -30, lookSide: 0.6, lookY: 2.3, fov: 52 };
   } else if (kind === 'street') {
     // a firefight on the Little Habana sidewalk at night
     setTime(20.5);
@@ -638,7 +664,7 @@ function setupShot(kind) {
     cruiser.speed = 0;
     G.vehicles.spawnVehicle('taxi', { x: x - 7.4, z: z - 16, heading: 0, ai: 'traffic' });
     G.police.setWanted(2);
-    shotCam = { px: x - 9.2, py: 2.45, pz: z - 7.4, lx: x + 0.8, ly: 1.35, lz: z + 7.5, fov: 54 };
+    shotCam = { px: x - 8.6, py: 3.05, pz: z - 6.4, lx: x + 1.2, ly: 1.30, lz: z + 11.0, fov: 54 };
     } else if (kind === 'pier') {
     // Centrico after dark: a boulevard chase with the air unit overhead
     setTime(20.7);
@@ -696,6 +722,16 @@ function setupShot(kind) {
       G.vehicles.spawnVehicle(i === 1 ? 'taxi' : 'sedan', { x: x + 24 + i * 20, z: z + 10.4, heading: Math.PI / 2, ai: 'traffic' });
     }
     shotCam = { px: x + 9.2, py: 1.85, pz: z - 5.4, lx: x + 1.0, ly: 1.35, lz: z + 4.2, fov: 46 };
+  }
+  // A shot is a still, but the street should look lived in: warm the traffic and
+  // the crowd up before the camera settles, or every capture is an empty road.
+  try {
+    for (let i = 0; i < 30; i++) G.traffic.update(0.35);
+    // the street shot stages its own gunfight, so do not scatter that cast
+    if (kind !== 'street') for (let i = 0; i < 16; i++) G.peds.update(0.5);
+    G.effects.update(0.2);
+  } catch (err) {
+    console.warn('Solara Bay: could not warm the shot', err);
   }
   window.__SHOT_KIND__ = kind;
 }

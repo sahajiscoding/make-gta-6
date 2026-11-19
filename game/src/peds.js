@@ -55,6 +55,22 @@ function buildPed(seed) {
   hair.scale.set(0.98, 0.92, 0.99);
   hips.add(hair);
 
+  // a face, however simple, is what stops a head reading as a ball
+  const faceMat = new THREE.MeshBasicMaterial({ color: '#20222a' });
+  for (const sx of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.02, 0.01), faceMat);
+    eye.position.set(sx * 0.055, 0.84, 0.145);
+    hips.add(eye);
+  }
+  const brow = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.018, 0.012), new THREE.MeshStandardMaterial({ color: '#2a1e18', roughness: 1 }));
+  brow.position.set(0, 0.875, 0.14);
+  hips.add(brow);
+  // belt and collar break up the torso
+  const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.245, 0.245, 0.07, 10), new THREE.MeshStandardMaterial({ color: '#26221d', roughness: 0.7 }));
+  belt.scale.z = 0.62;
+  belt.position.y = 0.12;
+  hips.add(belt);
+
   function limb(material, w, h, x, y, taper = 0.86) {
     const pivot = new THREE.Group();
     pivot.position.set(x, y, 0);
@@ -84,7 +100,7 @@ export function createPeds(G) {
   const list = [];
   const rng = new RNG(90210);
   const scene = G.scene;
-  const MAX_CIVILIANS = 20;
+  const MAX_CIVILIANS = 30;
 
   function spawnCivilian(x, z) {
     const p = {

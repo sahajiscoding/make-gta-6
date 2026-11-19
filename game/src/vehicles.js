@@ -266,6 +266,42 @@ export class Vehicle {
       g.add(sign);
     }
 
+    // interior: without it the glass reads as painted-on tint
+    const cabinZ = ((glass.z0 + glass.z1) / 2) * L;
+    const cabinLen = Math.abs(glass.z1 - glass.z0) * L * 0.92;
+    const cabinMat = new THREE.MeshStandardMaterial({ color: '#14161a', roughness: 0.95, metalness: 0 });
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(W * 0.9, 0.06, cabinLen), cabinMat);
+    floor.position.set(0, sill + (H - sill) * 0.42, cabinZ);
+    g.add(floor);
+    for (const sx of [-1, 1]) {
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(W * 0.32, 0.34, 0.42), cabinMat);
+      seat.position.set(sx * W * 0.24, sill + (H - sill) * 0.5, cabinZ + 0.1);
+      g.add(seat);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(W * 0.32, 0.4, 0.12), cabinMat);
+      back.position.set(sx * W * 0.24, sill + (H - sill) * 0.66, cabinZ - 0.16);
+      g.add(back);
+    }
+    // door shut lines, so the sides are not one blank slab
+    for (const sx of [-1, 1]) {
+      for (const dz of [-0.1, 0.28]) {
+        const seam = new THREE.Mesh(new THREE.BoxGeometry(0.012, (H - sill) * 0.5, 0.02), trimMat);
+        seam.position.set(sx * (W * 0.5 + 0.02), sill + (H - sill) * 0.34, dz * L);
+        g.add(seam);
+      }
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.22), trimMat);
+      handle.position.set(sx * (W * 0.5 + 0.04), sill + (H - sill) * 0.5, 0.1 * L);
+      g.add(handle);
+    }
+    // plate and exhaust
+    const plateMat = new THREE.MeshStandardMaterial({ color: '#d9d5c4', roughness: 0.6 });
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.13, 0.03), plateMat);
+    plate.position.set(0, sill + 0.12, -L * 0.5 - 0.02);
+    g.add(plate);
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.18, 8), trimMat);
+    pipe.rotation.x = Math.PI / 2;
+    pipe.position.set(W * 0.32, sill - 0.02, -L * 0.5 - 0.05);
+    g.add(pipe);
+
     // contact shadow: the sun's shadow map does the big shape, this grounds it
     g.add(contactShadow(W * 1.25, L * 1.12, 0.5));
 

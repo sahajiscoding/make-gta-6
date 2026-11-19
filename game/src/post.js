@@ -77,7 +77,7 @@ const COMPOSITE_FRAG = /* glsl */ `
 
     // split-tone: cool the shadows, keep the highlights warm
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    c += 0.055 * smoothstep(0.34, 0.0, l) * vec3(-0.14, 0.03, 0.20);
+    c += 0.050 * smoothstep(0.34, 0.0, l) * vec3(-0.10, 0.03, 0.15);
     c += 0.045 * smoothstep(0.55, 1.0, l) * vec3(0.16, 0.06, -0.11);
 
     c = mix(vec3(l), c, saturation);
@@ -119,7 +119,7 @@ export function createPost(renderer, scene, camera) {
   quadScene.add(quad);
 
   const brightMat = new THREE.ShaderMaterial({
-    uniforms: { tScene: { value: rtScene.texture }, threshold: { value: 1.05 }, knee: { value: 0.7 } },
+    uniforms: { tScene: { value: rtScene.texture }, threshold: { value: 1.25 }, knee: { value: 0.9 } },
     vertexShader: VERT,
     fragmentShader: BRIGHT_FRAG,
     depthTest: false,
@@ -141,7 +141,7 @@ export function createPost(renderer, scene, camera) {
       exposure: { value: 1.0 },
       bloomStrength: { value: 0.34 },
       vignette: { value: 0.6 },
-      grain: { value: 0.007 },
+      grain: { value: 0.011 },
       saturation: { value: 1.05 },
       contrast: { value: 1.11 },
       time: { value: 0 },
