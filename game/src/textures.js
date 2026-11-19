@@ -48,12 +48,12 @@ export function asphalt() {
     const c = canvas(w, w);
     const ctx = c.getContext('2d');
     const rng = new RNG(11);
-    ctx.fillStyle = '#33343a';
+    ctx.fillStyle = '#6b6e73';
     ctx.fillRect(0, 0, w, w);
     // patched tar seams
-    ctx.strokeStyle = 'rgba(18,18,22,0.55)';
+    ctx.strokeStyle = 'rgba(28,28,32,0.28)';
     for (let i = 0; i < 5; i++) {
-      ctx.lineWidth = rng.range(1, 3);
+      ctx.lineWidth = rng.range(0.8, 1.8);
       ctx.beginPath();
       let x = rng.range(0, w);
       let y = 0;
@@ -65,9 +65,104 @@ export function asphalt() {
       }
       ctx.stroke();
     }
-    speckle(ctx, w, w, rng, 5200, 0.14, 1.6);
+    speckle(ctx, w, w, rng, 3000, 0.1, 1.5);
     return toTexture(c, { repeat: [1, 1] });
   });
+}
+
+// ---------------------------------------------------------------- surface relief
+// A height field turned into a tangent-space normal map. Everything here is
+// authored as a little canvas, so relief costs no download and tiles with the
+// colour map it belongs to — which is what stops a flat plane reading as paper.
+function normalFromHeight(hc, strength) {
+  const w = hc.width;
+  const h = hc.height;
+  const src = hc.getContext('2d').getImageData(0, 0, w, h).data;
+  const out = new Uint8Array(w * h * 4);
+  const at = (x, y) => src[(((y + h) % h) * w + ((x + w) % w)) * 4] / 255;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+      const len = Math.hypot(dx, dy, 1);
+      const i = (y * w + x) * 4;
+      out[i] = ((-dx / len) * 0.5 + 0.5) * 255;
+      out[i + 1] = ((-dy / len) * 0.5 + 0.5) * 255;
+      out[i + 2] = ((1 / len) * 0.5 + 0.5) * 255;
+      out[i + 3] = 255;
+    }
+  }
+  const t = new THREE.DataTexture(out, w, h, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.anisotropy = aniso;
+  t.needsUpdate = true;
+  return t;
+}
+
+function gravelHeight(seed, tint = 128, count = 9000, grain = 1.7) {
+  const w = 256;
+  const hc = canvas(w, w);
+  const ctx = hc.getContext('2d');
+  const rng = new RNG(seed);
+  ctx.fillStyle = `rgb(${tint},${tint},${tint})`;
+  ctx.fillRect(0, 0, w, w);
+  for (let i = 0; i < count; i++) {
+    const v = Math.round(rng.range(-70, 70));
+    ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v / 255})` : `rgba(0,0,0,${-v / 255})`;
+    ctx.fillRect(rng.range(0, w), rng.range(0, w), grain, grain);
+  }
+  return hc;
+}
+
+export function asphaltNormal() {
+  return cached('asphalt.n', () => {
+    const hc = gravelHeight(17, 128, 12000, 1.8);
+    const ctx = hc.getContext('2d');
+    const rng = new RNG(19);
+    // coarse aggregate and old tar seams cut into the surface
+    ctx.strokeStyle = 'rgba(40,40,40,0.9)';
+    for (let i = 0; i < 4; i++) {
+      ctx.lineWidth = rng.range(1.5, 3.5);
+      ctx.beginPath();
+      let x = rng.range(0, 256);
+      let y = 0;
+      ctx.moveTo(x, y);
+      while (y < 256) {
+        y += rng.range(12, 34);
+        x += rng.range(-10, 10);
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    return normalFromHeight(hc, 2.4);
+  });
+}
+
+export function sidewalkNormal() {
+  return cached('sidewalk.n', () => {
+    const hc = gravelHeight(29, 150, 5000, 1.5);
+    const ctx = hc.getContext('2d');
+    // the grooves between slabs
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 4;
+    for (let i = 0; i <= 4; i++) {
+      const p = (i / 4) * 256;
+      ctx.beginPath();
+      ctx.moveTo(p, 0);
+      ctx.lineTo(p, 256);
+      ctx.moveTo(0, p);
+      ctx.lineTo(256, p);
+      ctx.stroke();
+    }
+    return normalFromHeight(hc, 2.0);
+  });
+}
+
+export function concreteNormal() {
+  return cached('concrete.n', () => normalFromHeight(gravelHeight(37, 140, 7000, 1.6), 1.2));
 }
 
 export function sidewalk() {
@@ -185,7 +280,9 @@ export function facade(opts) {
     trim = true,
   } = opts;
   return cached('facade' + key, () => {
-    const S = 256;
+    // 512 rather than 256: a facade covers several storeys, so the texel
+    // density on a wall the player walks past has to match the road's.
+    const S = 512;
     const c = canvas(S, S);
     const ctx = c.getContext('2d');
     const e = canvas(S, S);
@@ -193,48 +290,107 @@ export function facade(opts) {
     const rng = new RNG(seed);
     ctx.fillStyle = body;
     ctx.fillRect(0, 0, S, S);
-    // subtle grime so big walls do not read as flat color
-    for (let i = 0; i < 900; i++) {
+
+    // weather and grime, concentrated near the sills where water runs
+    for (let i = 0; i < 2600; i++) {
       const x = rng.range(0, S);
       const y = rng.range(0, S);
-      ctx.fillStyle = `rgba(0,0,0,${rng.range(0.01, 0.06)})`;
-      ctx.fillRect(x, y, rng.range(2, 14), rng.range(2, 10));
+      ctx.fillStyle = `rgba(0,0,0,${rng.range(0.01, 0.05)})`;
+      ctx.fillRect(x, y, rng.range(2, 16), rng.range(2, 12));
     }
+    for (let i = 0; i < 26; i++) {
+      const x = rng.range(0, S);
+      const w = rng.range(2, 9);
+      const g = ctx.createLinearGradient(0, 0, 0, rng.range(60, 240));
+      g.addColorStop(0, 'rgba(0,0,0,0.13)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x, 0, w, S);
+    }
+
     ectx.fillStyle = '#000';
     ectx.fillRect(0, 0, S, S);
     const cw = S / cols;
     const ch = S / rows;
-    const pad = Math.min(cw, ch) * 0.22;
+
     for (let r = 0; r < rows; r++) {
+      // storey band: a lit edge and a shadow line read as a floor slab
+      if (trim) {
+        ctx.fillStyle = 'rgba(255,255,255,0.16)';
+        ctx.fillRect(0, r * ch + 1, S, 3);
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillRect(0, r * ch + ch - 4, S, 4);
+      }
       for (let col = 0; col < cols; col++) {
-        const x = col * cw + pad * 0.6;
-        const y = r * ch + pad;
-        const w = cw - pad * 1.2;
-        const h = ch - pad * 1.8;
-        ctx.fillStyle = windowColor;
+        const w = cw * 0.6;
+        const h = ch * 0.58;
+        const x = col * cw + (cw - w) / 2;
+        const y = r * ch + ch * 0.2;
+        // reveal: the wall is thicker than the glass, so the frame casts a lip
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        ctx.fillRect(x - 4, y - 4, w + 8, h + 8);
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.fillRect(x - 4, y - 5, w + 8, 2);
+
+        const glass = ctx.createLinearGradient(0, y, 0, y + h);
+        glass.addColorStop(0, '#9db6c9');
+        glass.addColorStop(0.45, windowColor);
+        glass.addColorStop(1, '#1d2530');
+        ctx.fillStyle = glass;
         ctx.fillRect(x, y, w, h);
-        // glass sheen
-        const g = ctx.createLinearGradient(x, y, x + w, y + h);
-        g.addColorStop(0, 'rgba(255,255,255,0.18)');
-        g.addColorStop(0.55, 'rgba(255,255,255,0.02)');
-        g.addColorStop(1, 'rgba(0,0,0,0.16)');
-        ctx.fillStyle = g;
+        // the sky catching the pane
+        const sheen = ctx.createLinearGradient(x, y, x + w, y + h);
+        sheen.addColorStop(0, 'rgba(255,255,255,0.22)');
+        sheen.addColorStop(0.5, 'rgba(255,255,255,0.03)');
+        sheen.addColorStop(1, 'rgba(0,0,0,0.2)');
+        ctx.fillStyle = sheen;
         ctx.fillRect(x, y, w, h);
         if (frames) {
-          ctx.strokeStyle = 'rgba(30,30,32,0.5)';
-          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = 'rgba(24,26,30,0.65)';
+          ctx.lineWidth = 2;
           ctx.strokeRect(x, y, w, h);
+          // mullion
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x + w / 2, y);
+          ctx.lineTo(x + w / 2, y + h);
+          ctx.stroke();
         }
+        // sill
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.fillRect(x - 6, y + h + 2, w + 12, 3);
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        ctx.fillRect(x - 6, y + h + 5, w + 12, 2);
+
+        // the odd balcony with a railing, drawn into the wall itself
+        if (r % 3 === 1 && rng.chance(0.5)) {
+          ctx.fillStyle = 'rgba(40,42,46,0.5)';
+          ctx.fillRect(x - 10, y + h + 8, w + 20, 4);
+          ctx.strokeStyle = 'rgba(30,32,36,0.45)';
+          ctx.lineWidth = 1.5;
+          for (let b = 0; b < 6; b++) {
+            const bx = x - 10 + ((w + 20) / 6) * b;
+            ctx.beginPath();
+            ctx.moveTo(bx, y + h + 12);
+            ctx.lineTo(bx, y + h + 28);
+            ctx.stroke();
+          }
+          ctx.beginPath();
+          ctx.moveTo(x - 10, y + h + 28);
+          ctx.lineTo(x + w + 10, y + h + 28);
+          ctx.stroke();
+        }
+
         if (rng.chance(lit)) {
           ectx.fillStyle = litColor;
-          ectx.globalAlpha = rng.range(0.45, 1);
+          ectx.globalAlpha = rng.range(0.4, 1);
           ectx.fillRect(x, y, w, h);
+          // interior shapes: a lamp, a curtain, a person at the window
+          ectx.globalAlpha = rng.range(0.15, 0.5);
+          ectx.fillStyle = rng.chance(0.5) ? '#ffbf7a' : '#ffe9c4';
+          ectx.fillRect(x + w * rng.range(0.05, 0.6), y + h * rng.range(0.05, 0.5), w * 0.3, h * 0.35);
           ectx.globalAlpha = 1;
         }
-      }
-      if (trim) {
-        ctx.fillStyle = 'rgba(0,0,0,0.12)';
-        ctx.fillRect(0, (r + 1) * ch - 2, S, 2);
       }
     }
     return {
@@ -244,7 +400,6 @@ export function facade(opts) {
   });
 }
 
-// Little Habana style stucco: warm pastel with painted trim and small windows.
 export function stucco(color, seed) {
   return cached('stucco' + color + seed, () => {
     const S = 128;
@@ -376,6 +531,37 @@ export function storefrontSkin(seed, tint) {
 }
 
 // Soft round sprite used for shadows, smoke, dust and headlight glows.
+// A soft blob laid on the ground under anything that stands on it. Real shadow
+// maps handle the sun; this is the contact darkening that stops a car floating
+// on the asphalt and keeps characters readable after dark.
+export function shadowBlob() {
+  return cached('shadow.blob', () => {
+    const S = 128;
+    const c = canvas(S, S);
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+    g.addColorStop(0, 'rgba(0,0,0,0.72)');
+    g.addColorStop(0.5, 'rgba(0,0,0,0.34)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, S, S);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  });
+}
+
+export function contactShadow(w, l, opacity = 0.5) {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, l),
+    new THREE.MeshBasicMaterial({ map: shadowBlob(), transparent: true, opacity, depthWrite: false })
+  );
+  m.rotation.x = -Math.PI / 2;
+  m.position.y = 0.035;
+  m.renderOrder = 2;
+  return m;
+}
+
 export function radialSprite(inner = 'rgba(255,255,255,0.95)', outer = 'rgba(255,255,255,0)') {
   return cached('radial' + inner + outer, () => {
     const S = 128;

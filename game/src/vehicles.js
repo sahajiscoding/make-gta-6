@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { RNG, TAU, clamp, clamp01, damp, lerp, wrapAngle } from './util.js';
 import { collideCity } from './physics.js';
+import { contactShadow } from './textures.js';
 
 export const MODELS = {
   sedan: { len: 4.5, wid: 1.9, hgt: 1.42, mass: 1, maxSpeed: 44, accel: 12.5, brake: 22, grip: 5.2, steer: 1.9, colors: ['#c9c9cc', '#3b4a63', '#8c2f39', '#20524a', '#e0d6c2', '#2f3238'] },
@@ -15,13 +16,79 @@ export const MODELS = {
   fbi: { len: 4.8, wid: 2, hgt: 1.55, mass: 1.15, maxSpeed: 54, accel: 16.5, brake: 25, grip: 5.6, steer: 2.05, colors: ['#171a1f'] },
 };
 
-const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.26, 12);
-const wheelMat = new THREE.MeshLambertMaterial({ color: '#1b1b1e' });
-const glassMat = new THREE.MeshLambertMaterial({ color: '#1c2b33', transparent: true, opacity: 0.86 });
+const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.28, 16);
+const rimGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.29, 10);
+const wheelMat = new THREE.MeshStandardMaterial({ color: '#16171a', roughness: 0.92, metalness: 0.0 });
+const rimMat = new THREE.MeshStandardMaterial({ color: '#b6bcc4', roughness: 0.32, metalness: 0.9, envMapIntensity: 1.2 });
+const glassMat = new THREE.MeshStandardMaterial({
+  color: '#0b0f14',
+  roughness: 0.05,
+  metalness: 0.6,
+  envMapIntensity: 1.6,
+  transparent: true,
+  opacity: 0.93,
+});
 const lightMatOn = new THREE.MeshBasicMaterial({ color: '#fff6d5' });
 const tailMat = new THREE.MeshBasicMaterial({ color: '#8c1f1f' });
 const tailMatOn = new THREE.MeshBasicMaterial({ color: '#ff3b30' });
 const headlightMat = new THREE.MeshBasicMaterial({ color: '#ffeec2' });
+
+// Side profiles, drawn once and reused by every car of that model.
+const PROFILE = {
+  sport: [
+    [-0.50, 0.08], [-0.50, 0.30], [-0.43, 0.36], [-0.33, 0.40], [-0.24, 0.42],
+    [-0.17, 0.72], [-0.05, 0.97], [0.06, 1.00], [0.15, 0.90], [0.23, 0.56],
+    [0.34, 0.46], [0.44, 0.42], [0.50, 0.34], [0.50, 0.08], [0.34, 0.02], [-0.34, 0.02],
+  ],
+  sedan: [
+    [-0.50, 0.08], [-0.50, 0.38], [-0.44, 0.42], [-0.34, 0.45],
+    [-0.28, 0.46], [-0.22, 0.78], [-0.12, 0.97], [0.00, 1.00], [0.09, 0.90],
+    [0.17, 0.58], [0.28, 0.48], [0.42, 0.44], [0.50, 0.38], [0.50, 0.08], [0.34, 0.02], [-0.34, 0.02],
+  ],
+  taxi: [
+    [-0.50, 0.08], [-0.50, 0.38], [-0.44, 0.42], [-0.34, 0.45],
+    [-0.28, 0.46], [-0.22, 0.78], [-0.12, 0.97], [0.00, 1.00], [0.09, 0.90],
+    [0.17, 0.58], [0.28, 0.48], [0.42, 0.44], [0.50, 0.38], [0.50, 0.08], [0.34, 0.02], [-0.34, 0.02],
+  ],
+  police: [
+    [-0.50, 0.08], [-0.50, 0.38], [-0.44, 0.42], [-0.34, 0.45],
+    [-0.28, 0.46], [-0.22, 0.78], [-0.12, 0.97], [0.00, 1.00], [0.09, 0.90],
+    [0.17, 0.58], [0.28, 0.48], [0.42, 0.44], [0.50, 0.38], [0.50, 0.08], [0.34, 0.02], [-0.34, 0.02],
+  ],
+  fbi: [
+    [-0.50, 0.08], [-0.50, 0.38], [-0.44, 0.42], [-0.34, 0.45],
+    [-0.28, 0.46], [-0.22, 0.78], [-0.12, 0.97], [0.00, 1.00], [0.09, 0.90],
+    [0.17, 0.58], [0.28, 0.48], [0.42, 0.44], [0.50, 0.38], [0.50, 0.08], [0.34, 0.02], [-0.34, 0.02],
+  ],
+  suv: [
+    [-0.50, 0.08], [-0.50, 0.50], [-0.46, 0.54], [-0.40, 0.56],
+    [-0.34, 0.60], [-0.30, 0.94], [-0.18, 1.00], [0.12, 1.00], [0.19, 0.93],
+    [0.25, 0.62], [0.34, 0.55], [0.44, 0.52], [0.50, 0.46], [0.50, 0.08], [0.34, 0.02], [-0.34, 0.02],
+  ],
+  van: [
+    [-0.50, 0.08], [-0.50, 0.62], [-0.48, 0.70], [-0.43, 0.92], [-0.34, 1.00],
+    [0.28, 1.00], [0.34, 0.90], [0.36, 0.62], [0.44, 0.56], [0.50, 0.48],
+    [0.50, 0.08], [0.34, 0.02], [-0.34, 0.02],
+  ],
+  truck: [
+    [-0.50, 0.08], [-0.50, 0.56], [-0.48, 0.64], [-0.44, 0.90], [-0.36, 1.00],
+    [0.02, 1.00], [0.08, 0.90], [0.10, 0.60], [0.22, 0.50], [0.40, 0.46],
+    [0.50, 0.40], [0.50, 0.08], [0.34, 0.02], [-0.34, 0.02],
+  ],
+};
+
+// where the glasshouse sits: z as a fraction of length, y as a fraction of the
+// body height, so the band lands on the beltline of each profile
+const GLASS = {
+  sport: { z0: -0.22, z1: 0.16, y: 0.72 },
+  sedan: { z0: -0.26, z1: 0.12, y: 0.72 },
+  taxi: { z0: -0.26, z1: 0.12, y: 0.72 },
+  police: { z0: -0.26, z1: 0.12, y: 0.72 },
+  fbi: { z0: -0.26, z1: 0.12, y: 0.72 },
+  suv: { z0: -0.30, z1: 0.14, y: 0.76 },
+  van: { z0: -0.34, z1: 0.24, y: 0.78 },
+  truck: { z0: -0.34, z1: 0.02, y: 0.76 },
+};
 
 let carId = 0;
 
@@ -61,71 +128,63 @@ export class Vehicle {
   build() {
     const s = this.spec;
     const g = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: this.color, roughness: 0.45, metalness: 0.25 });
     const L = s.len;
     const W = s.wid;
     const H = s.hgt;
-    // Each model gets its own silhouette: a low two-door coupe, a tall boxy van,
-    // a long-bed truck, a wagon-ish SUV, and the sedans in between.
-    const sport = this.type === 'sport';
-    const tall = this.type === 'van' || this.type === 'truck';
-    const lowerH = H * (sport ? 0.46 : tall ? 0.62 : 0.52);
-    const ride = sport ? 0.44 : 0.52;
-    const cabH = H * (sport ? 0.3 : tall ? 0.5 : 0.42);
-    const cabLen = L * (sport ? 0.38 : this.type === 'van' ? 0.68 : 0.52);
-    const cabZ = -L * (sport ? 0.05 : 0.04);
+    const kind = this.type;
 
-    // Main hull with a slightly tapered nose.
-    const hull = new THREE.Mesh(new THREE.BoxGeometry(W, lowerH, L), bodyMat);
-    hull.position.y = ride + lowerH / 2;
-    hull.castShadow = true;
-    hull.receiveShadow = true;
-    g.add(hull);
+    const paint = new THREE.MeshPhysicalMaterial({
+      color: this.color,
+      roughness: 0.3,
+      metalness: 0.45,
+      clearcoat: 1,
+      clearcoatRoughness: 0.09,
+      envMapIntensity: 1.3,
+    });
+    const trimMat = new THREE.MeshStandardMaterial({ color: '#24262b', roughness: 0.55, metalness: 0.6, envMapIntensity: 1.0 });
 
-    const nose = new THREE.Mesh(new THREE.BoxGeometry(W * 0.92, lowerH * 0.6, L * 0.16), bodyMat);
-    nose.position.set(0, ride + lowerH * 0.3, L * 0.46);
-    g.add(nose);
+    // A car is a silhouette before it is a box: the body is one extruded side
+    // profile with a bevel, so every edge catches a highlight and the roofline,
+    // hood and deck are shaped rather than stacked.
+    const prof = PROFILE[kind] || PROFILE.sedan;
+    const sill = 0.26 + H * 0.05;
+    const shape = new THREE.Shape();
+    prof.forEach(([px, ty], i) => {
+      const x = px * L;
+      const y = sill + ty * (H - sill);
+      if (i === 0) shape.moveTo(x, y);
+      else shape.lineTo(x, y);
+    });
+    shape.closePath();
+    const bodyGeo = new THREE.ExtrudeGeometry(shape, {
+      depth: W - 0.16,
+      bevelEnabled: true,
+      bevelThickness: 0.09,
+      bevelSize: 0.09,
+      bevelSegments: 2,
+      curveSegments: 1,
+    });
+    bodyGeo.translate(0, 0, -(W - 0.16) / 2);
+    bodyGeo.rotateY(-Math.PI / 2);
 
-    // Cabin/roof: a box plus slanted glass.
-    const cab = new THREE.Mesh(new THREE.BoxGeometry(W * (sport ? 0.8 : 0.86), cabH, cabLen), bodyMat);
-    cab.position.set(0, ride + lowerH + cabH / 2 - 0.05, cabZ);
-    cab.castShadow = true;
-    g.add(cab);
+    const body = new THREE.Mesh(bodyGeo, paint);
+    body.castShadow = true;
+    body.receiveShadow = true;
+    g.add(body);
 
-    if (sport) {
-      // rear deck and a small lip spoiler so the coupe reads at a glance
-      const deck = new THREE.Mesh(new THREE.BoxGeometry(W * 0.96, lowerH * 0.5, L * 0.2), bodyMat);
-      deck.position.set(0, ride + lowerH * 1.15, -L * 0.38);
-      g.add(deck);
-      const wing = new THREE.Mesh(new THREE.BoxGeometry(W * 0.82, 0.06, 0.3), bodyMat);
-      wing.position.set(0, ride + lowerH * 1.55, -L * 0.46);
-      g.add(wing);
-    }
-    if (this.type === 'truck') {
-      const bed = new THREE.Mesh(new THREE.BoxGeometry(W * 0.98, lowerH * 0.9, L * 0.42), bodyMat);
-      bed.position.set(0, ride + lowerH * 0.55, -L * 0.3);
-      g.add(bed);
-    }
+    // greenhouse: a dark band inset flush with the paint, plus a roof cap
+    const glass = GLASS[kind] || GLASS.sedan;
+    const bandH = (H - sill) * 0.34;
+    const band = new THREE.Mesh(
+      new THREE.BoxGeometry(W + 0.035, bandH, Math.abs(glass.z1 - glass.z0) * L),
+      glassMat
+    );
+    band.position.set(0, sill + (H - sill) * glass.y, ((glass.z0 + glass.z1) / 2) * L);
+    g.add(band);
 
-    const windshield = new THREE.Mesh(new THREE.BoxGeometry(W * 0.8, cabH * 0.8, 0.1), glassMat);
-    windshield.position.set(0, ride + lowerH + cabH * 0.46, cabZ + cabLen * 0.5);
-    windshield.rotation.x = -0.32;
-    g.add(windshield);
-
-    const rearGlass = new THREE.Mesh(new THREE.BoxGeometry(W * 0.78, cabH * 0.72, 0.1), glassMat);
-    rearGlass.position.set(0, ride + lowerH + cabH * 0.46, cabZ - cabLen * 0.5);
-    rearGlass.rotation.x = 0.3;
-    g.add(rearGlass);
-
-    for (const side of [-1, 1]) {
-      const win = new THREE.Mesh(new THREE.BoxGeometry(0.06, cabH * 0.7, cabLen * 0.84), glassMat);
-      win.position.set(side * W * 0.44, ride + lowerH + cabH * 0.48, cabZ);
-      g.add(win);
-    }
-
-    // Wheels
+    // wheel arches, wheels and rims
     this.wheels = [];
-    const wx = W * 0.5 + 0.02;
+    const wx = W * 0.5 - 0.03;
     const wz = L * 0.32;
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
@@ -134,59 +193,88 @@ export class Vehicle {
         w.position.set(sx * wx, 0.36, sz * wz);
         w.castShadow = true;
         g.add(w);
+        const rim = new THREE.Mesh(rimGeo, rimMat);
+        rim.rotation.z = Math.PI / 2;
+        rim.position.set(sx * (wx + 0.012), 0.36, sz * wz);
+        g.add(rim);
         this.wheels.push(w);
       }
     }
 
-    // Lights
+    // bumpers, grille and lights
+    const bumper = new THREE.Mesh(new THREE.BoxGeometry(W * 0.98, 0.18, 0.16), trimMat);
+    bumper.position.set(0, sill + 0.1, L * 0.5 - 0.02);
+    g.add(bumper);
+    const rearBumper = bumper.clone();
+    rearBumper.position.z = -L * 0.5 + 0.02;
+    g.add(rearBumper);
+    const grille = new THREE.Mesh(new THREE.BoxGeometry(W * 0.62, 0.14, 0.1), trimMat);
+    grille.position.set(0, sill + 0.3, L * 0.5 + 0.01);
+    g.add(grille);
+
     for (const sx of [-1, 1]) {
-      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.08), headlightMat);
-      hl.position.set(sx * W * 0.32, ride + 0.2, L * 0.5 + 0.01);
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(W * 0.22, 0.13, 0.09), headlightMat);
+      hl.position.set(sx * W * 0.3, sill + 0.34, L * 0.5 + 0.02);
       g.add(hl);
-      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.14, 0.08), tailMat);
-      tl.position.set(sx * W * 0.34, ride + 0.2, -L * 0.5 - 0.01);
+      const tl = new THREE.Mesh(new THREE.BoxGeometry(W * 0.2, 0.11, 0.08), tailMat);
+      tl.position.set(sx * W * 0.32, sill + 0.34, -L * 0.5 - 0.01);
       g.add(tl);
       if (!this.tailLights) this.tailLights = [];
       this.tailLights.push(tl);
+      // mirrors
+      const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.1), trimMat);
+      mirror.position.set(sx * (W * 0.5 + 0.06), sill + (H - sill) * 0.56, glass.z0 * L * 0.92);
+      g.add(mirror);
+    }
+
+    if (this.type === 'truck') {
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(W * 0.99, 0.5, L * 0.52), trimMat);
+      bed.position.set(0, sill + 0.28, -L * 0.22);
+      bed.castShadow = true;
+      g.add(bed);
     }
 
     if (this.role === 'police' || this.role === 'fbi') {
       const stripeMat = new THREE.MeshStandardMaterial({
         color: this.role === 'police' ? '#1f4d8f' : '#0c0d10',
-        roughness: 0.6,
+        roughness: 0.5,
+        metalness: 0.2,
       });
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(W * 1.01, lowerH * 0.45, L * 0.9), stripeMat);
-      stripe.position.y = ride + lowerH * 0.4;
-      g.add(stripe);
+      for (const sx of [-1, 1]) {
+        const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.04, (H - sill) * 0.24, L * 0.8), stripeMat);
+        stripe.position.set(sx * (W * 0.5 - 0.02), sill + (H - sill) * 0.3, 0);
+        g.add(stripe);
+      }
       const barMat = new THREE.MeshBasicMaterial({ color: '#ff2b2b' });
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(W * 0.5, 0.16, 0.3), barMat);
-      bar.position.set(0, ride + lowerH + cabH + 0.08, cabZ);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(W * 0.52, 0.15, 0.28), barMat);
+      bar.position.set(0, H + 0.02, glass.z0 * L * 0.9);
       g.add(bar);
       this.lightBar = bar;
       const blueMat = new THREE.MeshBasicMaterial({ color: '#2233ff' });
-      const bar2 = new THREE.Mesh(new THREE.BoxGeometry(W * 0.5, 0.16, 0.3), blueMat);
-      bar2.position.set(0, ride + lowerH + cabH + 0.08, cabZ);
-      bar2.scale.z = 0.55;
-      bar2.position.z += 0.24;
+      const bar2 = new THREE.Mesh(new THREE.BoxGeometry(W * 0.52, 0.15, 0.16), blueMat);
+      bar2.position.set(0, H + 0.02, glass.z0 * L * 0.9 + 0.22);
       g.add(bar2);
       this.lightBar2 = bar2;
     }
 
     if (this.type === 'taxi') {
       const sign = new THREE.Mesh(
-        new THREE.BoxGeometry(0.7, 0.24, 0.3),
+        new THREE.BoxGeometry(0.7, 0.22, 0.28),
         new THREE.MeshBasicMaterial({ color: '#ffe066' })
       );
-      sign.position.set(0, ride + lowerH + cabH + 0.14, cabZ);
+      sign.position.set(0, H + 0.11, glass.z0 * L * 0.5);
       g.add(sign);
     }
 
-    // Damage smoke anchor and a bullet-hole decal group.
+    // contact shadow: the sun's shadow map does the big shape, this grounds it
+    g.add(contactShadow(W * 1.25, L * 1.12, 0.5));
+
+    // damage smoke anchor and a bullet-hole decal group.
     this.smokeAnchor = new THREE.Object3D();
     this.smokeAnchor.position.set(0, H * 0.7, L * 0.3);
     g.add(this.smokeAnchor);
 
-    this.bodyMats = [bodyMat];
+    this.bodyMats = [paint];
     return g;
   }
 

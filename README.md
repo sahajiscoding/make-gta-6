@@ -72,6 +72,28 @@ closing radio sting: `homecoming → wheels → rent → docks → heat → cour
 district map and blips, mission tag, objective line, subtitles, notices, a radio wheel and
 an autosave to `localStorage` (three slots) with quick save/load.
 
+## The look
+
+The renderer is a small, hand-written pipeline rather than a stack of libraries:
+
+- **`game/src/post.js`** — the scene renders into a half-float MSAA target, bright
+  areas are pulled out and blurred at quarter resolution for bloom, and one composite
+  pass does the ACES tonemap, a warm-highlight/cool-shadow split-tone, saturation,
+  contrast, vignette and film grain, then writes linear to sRGB itself.
+- **`game/src/envlight.js`** — every sky preset is baked into an equirectangular
+  panorama (gradient, sun disc, horizon haze, city spill) and filtered with PMREM into
+  a real environment map. Car paint, chrome, glass and water reflect the actual sky,
+  and diffuse light picks up its colour.
+- **`game/src/textures.js`** — height fields are authored as little canvases and turned
+  into tangent-space normal maps by a Sobel pass, so asphalt, slabs and plaster have
+  relief at the same texel density as their colour maps. Every texture is still drawn
+  at runtime: no image files, no downloads.
+- **Lighting** follows an art-bible rig: one key sun, a cool fill, a hemisphere and a
+  shadow-casting map that follows the player; night is city glow, never black.
+- **Geometry** — cars are extruded side profiles with bevels (silhouette first, boxes
+  only for trim), people are capsules and tapered cylinders, and everything that stands
+  on the ground carries a contact shadow.
+
 ## The captures
 
 | | |
