@@ -112,10 +112,10 @@ export function createPlayer(G) {
 
   const rig = buildRig({
     skin: '#c98d63',
-    shirt: '#e8e4da',
-    pants: '#2f3a4a',
-    hair: '#241a16',
-    shoe: '#1a1a1c',
+    shirt: '#2b3340', // a dark jacket: Rico reads against sunlight and neon
+    pants: '#3d4a5e',
+    hair: '#1d1512',
+    shoe: '#17171a',
   });
   scene.add(rig.group);
   // a soft bounce light tied to Rico keeps him readable after dark

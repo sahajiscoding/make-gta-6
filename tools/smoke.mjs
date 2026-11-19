@@ -51,6 +51,10 @@ function makeCtx() {
     fillText() {},
     strokeText() {},
     measureText: () => ({ width: 10 }),
+    // the surface-relief pass reads pixels back; a flat grey height field is
+    // enough for a headless run and keeps it fast
+    getImageData: (x, y, w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4).fill(128) }),
+    putImageData() {},
   };
   return ctx;
 }
@@ -233,7 +237,7 @@ export class WebGLRenderer {
   constructor(opts = {}) {
     this.domElement = opts.canvas || { addEventListener() {}, style: {} };
     this.shadowMap = { enabled: false, type: 0, needsUpdate: false };
-    this.capabilities = { getMaxAnisotropy: () => 8, isWebGL2: true };
+    this.capabilities = { getMaxAnisotropy: () => 8, isWebGL2: true, maxSamples: 4 };
     this.toneMapping = 0;
     this.toneMappingExposure = 1;
     this.outputColorSpace = '';
@@ -241,7 +245,11 @@ export class WebGLRenderer {
     this.frames = 0;
   }
   setPixelRatio() {}
+  getPixelRatio() { return 1; }
   setSize() {}
+  setRenderTarget() {}
+  clear() {}
+  getContext() { return null; }
   render() { this.frames++; }
   dispose() {}
   compile() {}

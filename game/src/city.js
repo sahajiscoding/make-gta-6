@@ -8,6 +8,31 @@ import * as TEX from './textures.js';
 
 export const ROAD_HALF = 8;
 
+// One physical surface helper. Everything the player's eye spends time on — the
+// road, the walk, the plaster, the containers — goes through this so the whole
+// city shares one shading model, one roughness language and one normal scale.
+function surface(map, opts = {}) {
+  const { rough = 0.9, metal = 0.0, normal = null, env = 0.85, normalScale = 1, color = 0xffffff, emissive, emissiveMap, emissiveIntensity = 0, ...rest } = opts;
+  const mat = new THREE.MeshStandardMaterial({
+    map,
+    color,
+    roughness: rough,
+    metalness: metal,
+    envMapIntensity: env,
+    ...rest,
+  });
+  if (normal) {
+    mat.normalMap = normal;
+    mat.normalScale = new THREE.Vector2(normalScale, normalScale);
+  }
+  if (emissive !== undefined) {
+    mat.emissive = new THREE.Color(emissive);
+    mat.emissiveIntensity = emissiveIntensity;
+    if (emissiveMap) mat.emissiveMap = emissiveMap;
+  }
+  return mat;
+}
+
 // Stretch a geometry's UVs so a shared tiling material keeps the same texel
 // density on a 6 m slab and a 90 m road, with no extra texture uploads.
 function scaleUV(geometry, sx, sy) {
@@ -44,11 +69,14 @@ export function createCity(scene, seed = 1) {
   const lots = [];
   const signs = [];
 
-  const asphaltMat = new THREE.MeshLambertMaterial({ map: TEX.asphalt() });
-  const walkMat = new THREE.MeshLambertMaterial({ map: TEX.sidewalk() });
-  const sandMat = new THREE.MeshLambertMaterial({ map: TEX.sand() });
-  const grassMat = new THREE.MeshLambertMaterial({ map: TEX.grass() });
-  const concreteMat = new THREE.MeshLambertMaterial({ map: TEX.concrete('#b0aca2') });
+  // Roughness values follow the art bible: nothing shiny except paint, glass
+  // and water. The asphalt sits low enough that the sky and every lamp land on
+  // it as a sheen — a wet-looking street without a single reflection pass.
+  const asphaltMat = surface(TEX.asphalt(), { rough: 0.84, normal: TEX.asphaltNormal(), normalScale: 0.17, env: 0.06 });
+  const walkMat = surface(TEX.sidewalk(), { rough: 0.88, normal: TEX.sidewalkNormal(), normalScale: 0.75, env: 0.12 });
+  const sandMat = surface(TEX.sand(), { rough: 0.97, env: 0.5 });
+  const grassMat = surface(TEX.grass(), { rough: 0.95, env: 0.55 });
+  const concreteMat = surface(TEX.concrete('#b0aca2'), { rough: 0.88, normal: TEX.concreteNormal(), normalScale: 0.6 });
 
   const paintMat = new THREE.MeshBasicMaterial({
     map: TEX.paintTexture('dash'),
@@ -59,7 +87,13 @@ export function createCity(scene, seed = 1) {
   // ---------------------------------------------------------------- ground
   const ocean = new THREE.Mesh(
     new THREE.PlaneGeometry(6000, 6000, 1, 1),
-    new THREE.MeshLambertMaterial({ map: TEX.water(), color: '#8fe3ef' })
+    new THREE.MeshStandardMaterial({
+      map: TEX.water(),
+      color: '#8fe3ef',
+      roughness: 0.08,
+      metalness: 0.45,
+      envMapIntensity: 1.6,
+    })
   );
   ocean.rotation.x = -Math.PI / 2;
   ocean.position.y = -0.9;
@@ -67,7 +101,7 @@ export function createCity(scene, seed = 1) {
   group.add(ocean);
 
   const landGeo = new THREE.PlaneGeometry(LAND_HALF * 2, LAND_HALF * 2);
-  const land = new THREE.Mesh(landGeo, new THREE.MeshLambertMaterial({ map: TEX.concrete('#8f8c84') }));
+  const land = new THREE.Mesh(landGeo, surface(TEX.concrete('#8f8c84'), { rough: 0.92, normal: TEX.concreteNormal(), normalScale: 0.5 }));
   land.rotation.x = -Math.PI / 2;
   land.position.y = -0.02;
   land.receiveShadow = true;
@@ -136,7 +170,7 @@ export function createCity(scene, seed = 1) {
   }
 
   // Sidewalk slabs + curbs around every block cell.
-  const curbMat = new THREE.MeshLambertMaterial({ map: TEX.concrete('#cac6bb') });
+  const curbMat = surface(TEX.concrete('#cac6bb'), { rough: 0.8, normal: TEX.concreteNormal(), normalScale: 0.7 });
   const crosswalkMat = new THREE.MeshBasicMaterial({
     map: TEX.paintTexture('bar'),
     transparent: true,
@@ -235,13 +269,23 @@ export function createCity(scene, seed = 1) {
     const emi = f.emissive.clone();
     map.needsUpdate = true;
     emi.needsUpdate = true;
-    const mat = new THREE.MeshLambertMaterial({ map, emissiveMap: emi, emissive: 0xffffff, emissiveIntensity: 0 });
-    mat.userData.nightGlow = 1.5;
+    const mat = new THREE.MeshStandardMaterial({
+      map,
+      emissiveMap: emi,
+      emissive: 0xffffff,
+      emissiveIntensity: 0,
+      roughness: 0.78,
+      metalness: 0.02,
+      envMapIntensity: 0.8,
+      normalMap: TEX.concreteNormal(),
+      normalScale: new THREE.Vector2(0.45, 0.45),
+    });
+    mat.userData.nightGlow = 1.0;
     return { mat, map, emi };
   }
 
   function rooftop(cx, cz, top, w, d, r2) {
-    const roofMat = new THREE.MeshLambertMaterial({ map: TEX.concrete('#8d8a82') });
+    const roofMat = surface(TEX.concrete('#8d8a82'), { rough: 0.9, normal: TEX.concreteNormal(), normalScale: 0.5 });
     const roof = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), roofMat);
     roof.position.set(cx, top + 0.25, cz);
     roof.receiveShadow = true;
@@ -253,7 +297,7 @@ export function createCity(scene, seed = 1) {
       const uh = r2.range(1, 2.6);
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(uw, uh, ud),
-        new THREE.MeshLambertMaterial({ map: TEX.concrete('#a9a49a') })
+        surface(TEX.concrete('#a9a49a'), { rough: 0.88, normal: TEX.concreteNormal(), normalScale: 0.5 })
       );
       box.position.set(
         cx + r2.range(-w / 2 + uw, w / 2 - uw),
@@ -296,7 +340,7 @@ export function createCity(scene, seed = 1) {
         emissiveMap: tex,
         emissiveIntensity: 0,
       });
-      mat.userData.nightGlow = 0.5;
+      mat.userData.nightGlow = 0.7;
       let mesh;
       if (facesX) {
         mesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 4.2, seg * 0.94), mat);
@@ -369,7 +413,7 @@ export function createCity(scene, seed = 1) {
       const whH = r2.range(7, 12);
       const wh = new THREE.Mesh(
         new THREE.BoxGeometry(whW, whH, whD),
-        new THREE.MeshLambertMaterial({ map: TEX.containerSkin(r2.pick(['#8a8f96', '#6f7d86', '#94897a'])) })
+        surface(TEX.containerSkin(r2.pick(['#8a8f96', '#6f7d86', '#94897a'])), { rough: 0.55, metal: 0.35, env: 1.0 })
       );
       wh.position.set(cx + r2.range(-4, 4), whH / 2, cz + r2.range(-4, 4));
       wh.castShadow = true;
@@ -422,7 +466,7 @@ export function createCity(scene, seed = 1) {
         // rounded corner tower cap
         const cap = new THREE.Mesh(
           new THREE.CylinderGeometry(bw * 0.16, bw * 0.16, bh * 0.5, 12),
-          new THREE.MeshLambertMaterial({ map: TEX.concrete(HOTEL_COLORS[Math.floor(r2.next() * HOTEL_COLORS.length)]) })
+          surface(TEX.concrete(HOTEL_COLORS[Math.floor(r2.next() * HOTEL_COLORS.length)]), { rough: 0.84, normal: TEX.concreteNormal(), normalScale: 0.55 })
         );
         cap.position.set(bx + bw / 2 - bw * 0.1, bh * 0.75, lz);
         cap.castShadow = true;
@@ -480,7 +524,7 @@ export function createCity(scene, seed = 1) {
       group.add(plaza);
       const basin = new THREE.Mesh(
         new THREE.CylinderGeometry(4, 4.4, 0.7, 20),
-        new THREE.MeshLambertMaterial({ map: TEX.concrete('#d2cec2') })
+        surface(TEX.concrete('#d2cec2'), { rough: 0.85, normal: TEX.concreteNormal(), normalScale: 0.55 })
       );
       basin.position.set(cx, 0.55, cz);
       group.add(basin);
@@ -553,7 +597,7 @@ export function createCity(scene, seed = 1) {
   }
 
   // Boardwalk along the sand edge: planks, a rail and planters.
-  const plankMat = new THREE.MeshLambertMaterial({ map: TEX.concrete('#8a7a63') });
+  const plankMat = surface(TEX.concrete('#8a7a63'), { rough: 0.84, normal: TEX.concreteNormal(), normalScale: 0.8 });
   const boardwalk = new THREE.Mesh(scaleUV(new THREE.BoxGeometry(7, 0.22, LAND_HALF * 2), 2, LAND_HALF / 2), plankMat);
   boardwalk.position.set(BEACH_X1 - 3.6, 0.11, 0);
   boardwalk.receiveShadow = true;
@@ -573,18 +617,22 @@ export function createCity(scene, seed = 1) {
 
   // ---------------------------------------------------------------- instanced trees
   const trunkGeo = new THREE.CylinderGeometry(0.16, 0.26, 1, 6);
-  const trunkMat = new THREE.MeshLambertMaterial({ color: '#7d6244' });
+  const trunkMat = new THREE.MeshStandardMaterial({ color: '#907253', roughness: 0.85 });
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, palms.length);
   trunks.castShadow = true;
 
-  const frondMat = new THREE.MeshLambertMaterial({
+  const frondMat = new THREE.MeshStandardMaterial({
     map: TEX.palmFrond(),
+    color: '#c8e0a8',
+    roughness: 0.8,
+    metalness: 0,
+    envMapIntensity: 0.8,
     transparent: true,
     alphaTest: 0.35,
     side: THREE.DoubleSide,
   });
   const crownGeo = new THREE.SphereGeometry(0.85, 8, 6);
-  const crownMat = new THREE.MeshLambertMaterial({ color: '#3f6b2c' });
+  const crownMat = new THREE.MeshStandardMaterial({ color: '#5f9440', roughness: 0.75, envMapIntensity: 0.9 });
   const crowns = new THREE.InstancedMesh(crownGeo, crownMat, palms.length);
   const frondGeo = new THREE.PlaneGeometry(11, 11);
   const frondCount = palms.length * 6;

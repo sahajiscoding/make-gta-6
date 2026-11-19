@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { RNG, TAU, clamp, clamp01, damp, angleDamp, lerp, wrapAngle } from './util.js';
 import { collideCity } from './physics.js';
+import { contactShadow } from './textures.js';
 
 const SKIN = ['#c98d63', '#8d5a3b', '#5c3a26', '#e0b48c', '#a8703f', '#3f2a1e'];
 const SHIRT = ['#e9e4d8', '#c0392b', '#2a6f97', '#e9c46a', '#6a8d73', '#8e54e9', '#ef7c8e', '#1d3557'];
@@ -11,35 +12,53 @@ const PANTS = ['#2f3a4a', '#1f2933', '#4a4238', '#2b2b2e', '#6b7280'];
 function buildPed(seed) {
   const r = new RNG(seed);
   const g = new THREE.Group();
-  const skinMat = new THREE.MeshLambertMaterial({ color: r.pick(SKIN) });
-  const shirtMat = new THREE.MeshLambertMaterial({ color: r.pick(SHIRT) });
-  const pantsMat = new THREE.MeshLambertMaterial({ color: r.pick(PANTS) });
+  // cloth and skin in the same physical model as the city, so a pedestrian at
+  // dusk is lit by the same sky and the same lamps as the paint beside them
+  const skinMat = new THREE.MeshStandardMaterial({ color: r.pick(SKIN), roughness: 0.72 });
+  const shirtMat = new THREE.MeshStandardMaterial({ color: r.pick(SHIRT), roughness: 0.82 });
+  const pantsMat = new THREE.MeshStandardMaterial({ color: r.pick(PANTS), roughness: 0.88 });
+  const shoeMat = new THREE.MeshStandardMaterial({ color: r.pick(['#1a1a1d', '#2a2320', '#3d3a33']), roughness: 0.6 });
+
+  g.add(contactShadow(0.95, 0.95, 0.42));
 
   const hips = new THREE.Group();
   hips.position.y = 0.9;
   g.add(hips);
 
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.28), shirtMat);
+  // a capsule torso reads as a body; a box reads as a crate
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.34, 4, 10), shirtMat);
+  torso.scale.set(1.05, 1, 0.72);
   torso.position.y = 0.34;
   torso.castShadow = true;
   hips.add(torso);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), skinMat);
+  const shoulders = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.32, 4, 8), shirtMat);
+  shoulders.rotation.z = Math.PI / 2;
+  shoulders.position.y = 0.55;
+  hips.add(shoulders);
+
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.1, 8), skinMat);
+  neck.position.y = 0.68;
+  hips.add(neck);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.155, 12, 10), skinMat);
   head.position.y = 0.82;
+  head.scale.set(0.94, 1.06, 0.96);
   head.castShadow = true;
   hips.add(head);
 
   const hair = new THREE.Mesh(
-    new THREE.SphereGeometry(0.168, 10, 6, 0, TAU, 0, Math.PI / 2),
-    new THREE.MeshLambertMaterial({ color: r.pick(['#241a16', '#111114', '#6b4a2a', '#d9c9a3']) })
+    new THREE.SphereGeometry(0.163, 12, 8, 0, TAU, 0, Math.PI / 2),
+    new THREE.MeshStandardMaterial({ color: r.pick(['#241a16', '#111114', '#6b4a2a', '#d9c9a3']), roughness: 0.95 })
   );
-  hair.position.y = 0.855;
+  hair.position.y = 0.822;
+  hair.scale.set(0.98, 0.92, 0.99);
   hips.add(hair);
 
-  function limb(material, w, h, x, y) {
+  function limb(material, w, h, x, y, taper = 0.86) {
     const pivot = new THREE.Group();
     pivot.position.set(x, y, 0);
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, w * 1.05), material);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry((w / 2) * taper, w / 2, h, 8), material);
     m.position.y = -h / 2;
     m.castShadow = true;
     pivot.add(m);
@@ -47,10 +66,16 @@ function buildPed(seed) {
     return pivot;
   }
 
-  const armL = limb(shirtMat, 0.14, 0.46, -0.32, 0.58);
-  const armR = limb(shirtMat, 0.14, 0.46, 0.32, 0.58);
-  const legL = limb(pantsMat, 0.18, 0.78, -0.13, 0.0);
-  const legR = limb(pantsMat, 0.18, 0.78, 0.13, 0.0);
+  const armL = limb(shirtMat, 0.13, 0.46, -0.31, 0.58, 1.1);
+  const armR = limb(shirtMat, 0.13, 0.46, 0.31, 0.58, 1.1);
+  const legL = limb(pantsMat, 0.17, 0.78, -0.12, 0.02, 1.25);
+  const legR = limb(pantsMat, 0.17, 0.78, 0.12, 0.02, 1.25);
+  for (const [pivot, side] of [[legL, -1], [legR, 1]]) {
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.09, 0.26), shoeMat);
+    foot.position.set(0, -0.82, 0.05);
+    foot.castShadow = true;
+    pivot.add(foot);
+  }
 
   return { group: g, hips, torso, head, armL, armR, legL, legR, shirtMat, pantsMat };
 }

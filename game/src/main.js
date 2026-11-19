@@ -1,8 +1,11 @@
 // Solara Bay — bootstrap: renderer, sky, day/night cycle, the fixed-step game
 // loop and the small amount of glue that lets every system talk to the others.
 import * as THREE from 'three';
-// Imports run most-defining first: a reader of this file meets the story, the
-// HUD, the police and the player before the city they stand in.
+// Imports run most-defining first: a reader of this file meets the frame
+// pipeline, the story, the HUD, the police and the player before the city they
+// stand in.
+import { createPost } from './post.js';
+import { createEnvLight } from './envlight.js';
 import { createMissions } from './missions.js';
 import { createHUD } from './hud.js';
 import { createMinimap } from './minimap.js';
@@ -34,8 +37,9 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+// The composite pass owns the tonemap, so materials render linear into a
+// half-float target and nothing tone-maps twice.
+renderer.toneMapping = THREE.NoToneMapping;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 setAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
 
@@ -44,11 +48,34 @@ scene.fog = new THREE.Fog(0x9fc4d8, 120, 620);
 const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.1, 3000);
 camera.position.set(0, 6, -12);
 
+// Frame pipeline + image-based sky light. A browser without the float targets
+// or without WebGL2 still gets a game, just a plainer one.
+let post;
+let envLight;
+try {
+  post = createPost(renderer, scene, camera);
+  envLight = createEnvLight(renderer, scene);
+  post.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio ? renderer.getPixelRatio() : 1);
+} catch (err) {
+  console.warn('Solara Bay: falling back to direct rendering', err);
+  post = {
+    uniforms: { exposure: { value: 1 }, bloomStrength: { value: 0 } },
+    setSize() {},
+    render() {
+      renderer.setRenderTarget?.();
+      renderer.render(scene, camera);
+    },
+  };
+  envLight = { update() {} };
+}
+
 // ---------------------------------------------------------------- game context
 export const G = {
   scene,
   camera,
   renderer,
+  post,
+  envLight,
   canvas,
   seed: SEED,
   state: {
@@ -105,8 +132,8 @@ const skyMat = new THREE.ShaderMaterial({
       vec3 col = mix(bottomColor, topColor, pow(h, exponent));
       float sun = pow(max(dot(dir, normalize(sunDir)), 0.0), 220.0);
       float glow = pow(max(dot(dir, normalize(sunDir)), 0.0), 6.0);
-      col += sunColor * sun * 1.6;
-      col += sunColor * glow * 0.28;
+      col += sunColor * sun * 1.1;
+      col += sunColor * glow * 0.16;
       gl_FragColor = vec4(col, 1.0);
     }
   `,
@@ -324,6 +351,7 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight, false);
+  post.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
 });
 
 // ---------------------------------------------------------------- day / night
@@ -333,10 +361,10 @@ const SKY_STOPS = [
   { h: 0, top: '#05070f', bottom: '#0a1120', fog: '#0a1220', hemiSky: '#1b2740', hemiGround: '#0b0d12', light: 0.12 },
   { h: 4.6, top: '#080b16', bottom: '#131c2e', fog: '#101828', hemiSky: '#22304c', hemiGround: '#0d0f14', light: 0.16 },
   { h: 6.2, top: '#2b3a6b', bottom: '#ff9a63', fog: '#8e7f8a', hemiSky: '#93a8d4', hemiGround: '#3a3230', light: 0.9 },
-  { h: 8.5, top: '#2f6fc0', bottom: '#cfe6f7', fog: '#a9c8dd', hemiSky: '#cfe2ff', hemiGround: '#6b6a58', light: 2.25 },
-  { h: 15.5, top: '#2f6fc0', bottom: '#d6e9f7', fog: '#b0cbdc', hemiSky: '#d3e4ff', hemiGround: '#6f6a55', light: 2.2 },
-  { h: 17.4, top: '#3a5a9c', bottom: '#ffcf9c', fog: '#b9a394', hemiSky: '#c9c0e0', hemiGround: '#5e4a3a', light: 1.65 },
-  { h: 18.6, top: '#3b3f77', bottom: '#e88a5c', fog: '#9a8189', hemiSky: '#a08ec8', hemiGround: '#463733', light: 0.95 },
+  { h: 8.5, top: '#1f5fb6', bottom: '#c2ddf2', fog: '#93b6cf', hemiSky: '#cfe2ff', hemiGround: '#6b6a58', light: 2.4 },
+  { h: 15.5, top: '#1f5fb6', bottom: '#cbe3f4', fog: '#9cbcd4', hemiSky: '#d3e4ff', hemiGround: '#6f6a55', light: 2.35 },
+  { h: 17.4, top: '#28437f', bottom: '#ffb877', fog: '#a48d84', hemiSky: '#e0c6b4', hemiGround: '#5d4535', light: 1.9 },
+  { h: 18.6, top: '#2c3468', bottom: '#d9744a', fog: '#8a7078', hemiSky: '#a58bb8', hemiGround: '#463430', light: 1.1 },
   { h: 19.6, top: '#22294f', bottom: '#7d5f72', fog: '#4a4258', hemiSky: '#5a5c88', hemiGround: '#26232c', light: 0.5 },
   { h: 20.6, top: '#101a34', bottom: '#2b3550', fog: '#1a2438', hemiSky: '#2c3a5c', hemiGround: '#12141c', light: 0.26 },
   { h: 24, top: '#05070f', bottom: '#0a1120', fog: '#0a1220', hemiSky: '#1b2740', hemiGround: '#0b0d12', light: 0.12 },
@@ -389,20 +417,23 @@ function updateSky(dt) {
   skyUniforms.sunColor.value.copy(_c1.set(alt > -0.05 ? '#ffd9a0' : '#8fa4d0'));
 
   scene.fog.color.copy(cFog);
-  scene.fog.near = 80 + 90 * clamp01(alt + 0.15);
-  scene.fog.far = 520 + 240 * clamp01(alt + 0.15);
+  scene.fog.near = 150 + 110 * clamp01(alt + 0.15);
+  scene.fog.far = 780 + 420 * clamp01(alt + 0.15);
 
   hemi.color.copy(cHemiSky);
   hemi.groundColor.copy(cHemiGround);
   // night is lit by the city itself, never pitch black
-  hemi.intensity = lerp(1.0, 0.95, clamp01(alt * 1.8 + 0.35));
-  ambient.intensity = lerp(1.15, 0.2, clamp01(alt * 2 + 0.3));
-  ambient.color.copy(_c1.set(alt > 0.05 ? '#c8d8ee' : '#6a7c9c'));
+  // lerp(night, day, dayness): at night the city glows, it is never unlit
+  hemi.intensity = lerp(1.15, 0.55, clamp01(alt * 1.8 + 0.35));
+  ambient.intensity = lerp(1.45, 0.6, clamp01(alt * 2 + 0.3));
+  // shadow colour follows the key: blue in daylight, warm at golden hour,
+  // cold and dim once the sun is gone
+  ambient.color.copy(_c1.set(alt > 0.42 ? '#cadcee' : alt > 0.06 ? '#ffcfae' : '#8189a6'));
 
   sun.intensity = sunLight;
   sun.color.copy(_c1.set(alt > 0.18 ? '#fff4dc' : alt > -0.04 ? '#ffa96b' : '#7f95c8'));
-  fill.intensity = lerp(0.12, 0.3, clamp01(alt + 0.2));
-  fill.color.set(alt > 0 ? '#9fb8ff' : '#4a5c92');
+  fill.intensity = lerp(0.22, 0.42, clamp01(alt + 0.2));
+  fill.color.set(alt > 0.05 ? '#ffd9b4' : '#5b6fa8');
 
   starMat.opacity = clamp01(-alt * 2.4);
   stars.visible = starMat.opacity > 0.02;
@@ -415,9 +446,20 @@ function updateSky(dt) {
 
   const night = clamp01(-alt * 2.4 + 0.2);
   G.settings.night = night;
-  renderer.toneMappingExposure = lerp(1.3, 1.0, clamp01(alt * 1.6 + 0.4));
+  post.uniforms.exposure.value = lerp(1.28, 0.98, clamp01(alt * 1.6 + 0.4)) * (G.settings.exposure ?? 1);
   city.setNight(night);
   audio.update(dt, { night });
+
+  // re-filter the sky into the environment map the materials sample
+  envLight.update({
+    top: cTop,
+    bottom: cBottom,
+    fog: cFog,
+    sunDir: sunPos,
+    sunColor: _c1.set(alt > 0.12 ? '#fff2d2' : alt > -0.05 ? '#ff9d5c' : '#5f74a8'),
+    night,
+    envIntensity: lerp(0.9, 1.15, clamp01(alt * 1.4 + 0.5)),
+  });
 }
 
 // ---------------------------------------------------------------- loop
@@ -473,7 +515,7 @@ function frame(now) {
     city.update(raw, G.worldTime);
   }
 
-  renderer.render(scene, camera);
+  post.render(raw);
   frames++;
   if (frames === 2) G.menu.hideLoading();
 }
@@ -526,7 +568,7 @@ function setupShot(kind) {
 
   if (kind === 'chase') {
     // golden hour on the Sunset Strip: Rico's coupe, two cruisers on its tail
-    setTime(17.6);
+    setTime(16.7);
     const x = city.roads.xs[0] + 4.4;
     const z = 120;
     const car = G.vehicles.spawnVehicle('sport', { x, z, heading: Math.PI, ai: 'player', color: '#e2452f' });
@@ -576,8 +618,8 @@ function setupShot(kind) {
     p.weapon = 1;
     p.camYaw = heading + Math.PI;
     // neon bolted to the club wall, facing the street
-    city.addNeon('CLUB MIRAMAR', '#ff5fa2', x + 3.1, 8.2, z + 2, -Math.PI / 2, 13, 2.8);
-    city.addNeon('RON · SALSA', '#4de1ff', x + 3.1, 5.2, z - 6, -Math.PI / 2, 10, 1.7);
+    city.addNeon('CLUB MIRAMAR', '#ff5fa2', x + 3.05, 6.6, z + 2, -Math.PI / 2, 9.5, 2.0);
+    city.addNeon('RON · SALSA', '#4de1ff', x + 3.05, 4.0, z - 6, -Math.PI / 2, 7.5, 1.3);
     for (let i = 0; i < 3; i++) {
       const g = G.peds.spawnGang(x + 0.4 + i * 1.2, z + 9 + i * 3.6);
       g.state = 'aim';
@@ -653,7 +695,7 @@ function setupShot(kind) {
     for (let i = 0; i < 3; i++) {
       G.vehicles.spawnVehicle(i === 1 ? 'taxi' : 'sedan', { x: x + 24 + i * 20, z: z + 10.4, heading: Math.PI / 2, ai: 'traffic' });
     }
-    shotCam = { px: x + 13, py: 2.15, pz: z - 6.5, lx: x + 1.2, ly: 1.45, lz: z + 5.5, fov: 44 };
+    shotCam = { px: x + 9.2, py: 1.85, pz: z - 5.4, lx: x + 1.0, ly: 1.35, lz: z + 4.2, fov: 46 };
   }
   window.__SHOT_KIND__ = kind;
 }
@@ -669,7 +711,7 @@ function tickShot(raw) {
     }
     if (shotCam?.car) poseCameraFollow(shotCam);
     else if (shotCam) poseCamera(shotCam.px, shotCam.py, shotCam.pz, shotCam.lx, shotCam.ly, shotCam.lz, shotCam.fov);
-    renderer.render(scene, camera);
+    post.render(0.016);
     return;
   }
   updateSky(STEP);
@@ -686,7 +728,7 @@ function tickShot(raw) {
   }
   if (shotCam?.car) poseCameraFollow(shotCam);
   else if (shotCam) poseCamera(shotCam.px, shotCam.py, shotCam.pz, shotCam.lx, shotCam.ly, shotCam.lz, shotCam.fov);
-  renderer.render(scene, camera);
+    post.render(0.016);
 }
 
 // ---------------------------------------------------------------- boot
